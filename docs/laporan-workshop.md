@@ -73,17 +73,29 @@ order_value_predictions (pipeline_ml)  --/
 
 ## 4. Self-check checklist (docs/capstone.md)
 
-- [x] Pipeline baru muncul sebagai code location sendiri (`workspace.yaml`)
-- [ ] "Materialize all" berhasil end-to-end di UI — *belum diverifikasi
-      langsung karena Docker Desktop belum aktif saat pengerjaan; sudah
-      tervalidasi via `docker compose config` dan seluruh unit test*
-- [x] Ada `@asset_check` yang lulus (`report_has_no_duplicate_orders`)
-- [x] `pytest` lulus untuk `pipeline_reporting/tests/`
+- [x] Pipeline baru muncul sebagai code location sendiri (`workspace.yaml`,
+      diverifikasi lewat log `dagster_webserver` yang berhasil me-load
+      `pipeline_reporting` di port 4003)
+- [x] "Materialize all" berhasil end-to-end — dijalankan lewat
+      `dagster job launch` untuk keempat pipeline (`pipeline_products` →
+      `pipeline_fx` → `pipeline_ml` → `pipeline_reporting`), semua status
+      `SUCCESS`; data terverifikasi langsung di warehouse (`products`: 20,
+      `orders`: 14, `exchange_rates`: 29, `order_value_predictions`: 14,
+      `high_value_orders_eur_report`: 7 baris)
+- [x] Ada `@asset_check` yang lulus (`report_has_no_duplicate_orders` →
+      `passed=True`, `num_duplicate_orders=0`)
+- [x] `pytest` lulus untuk `pipeline_reporting/tests/` (6 test)
 - [x] Sudah di-wire ke `docker-compose.yml` dan `workspace.yaml`
-- [ ] README fork diisi dengan `portfolio-readme-template.md` — *belum,
-      karena repo belum di-fork ke akun GitHub pribadi*
+- [x] Repo di-fork ke akun GitHub pribadi
+      (https://github.com/glecyhaloho/dagster-workshop-multi) dan semua
+      commit sudah di-push
+- [x] README fork diisi mengikuti `portfolio-readme-template.md`
 
-## 5. Refleksi
+## 5. Link fork
+
+https://github.com/glecyhaloho/dagster-workshop-multi
+
+## 6. Refleksi
 
 Pola "satu container per pipeline, berbagi satu warehouse sebagai landing
 zone" membuat pipeline baru bisa ditambahkan tanpa menyentuh pipeline yang
