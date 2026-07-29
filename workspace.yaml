@@ -11,3 +11,7 @@ load_from:
       host: pipeline_ml
       port: 4002
       location_name: "pipeline_ml"
+  - grpc_server:
+      host: pipeline_reporting
+      port: 4003
+      location_name: "pipeline_reporting"
