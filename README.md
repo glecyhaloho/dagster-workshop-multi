@@ -1,3 +1,88 @@
+# pipeline_reporting — cross-pipeline EUR value + high-value order report
+
+Combines data already produced by three independent pipelines
+(`pipeline_products`, `pipeline_fx`, `pipeline_ml`) into one warehouse table,
+without any pipeline depending on another directly — just a shared
+destination database. I picked this track because it best demonstrates the
+core idea of the workshop: independent containers landing in one place, and
+downstream consumers reading that place instead of calling each other.
+
+Built on top of [dagster-workshop-multi](https://github.com/DanielAdif/dagster-workshop-multi),
+a multi-container Dagster workshop — see below for the base architecture
+(`pipeline_products`, `pipeline_fx`, `pipeline_ml`).
+
+## What I built
+
+- **Track:** B — cross-pipeline analytics
+- **Data source:** the shared `warehouse_postgresql` tables written by the
+  three existing pipelines — `orders`/`products` (`pipeline_products`),
+  `exchange_rates` (`pipeline_fx`), `order_value_predictions` (`pipeline_ml`)
+- **Key assets:**
+  - `high_value_orders_eur_report` — joins `orders` + `products` per
+    `order_id`, converts totals to EUR using the latest USD→EUR rate, and
+    merges in each order's high-value prediction and average model
+    probability from `pipeline_ml`
+  - `high_value_orders_eur_report_table` — writes the result to the
+    warehouse as `high_value_orders_eur_report`
+- **Quality gate:** `report_has_no_duplicate_orders` — an `@asset_check`
+  that fails if the report contains more than one row for the same
+  `order_id`, since the report is meant to be one row per order
+
+## Architecture
+
+```
+                     dagster_webserver (:3000)  <-- workspace.yaml -->  dagster_daemon
+                              |                                              |
+                              +---------------------+-----------------------+
+                                                     |
+                             dagster_postgresql  (Dagster's own run/schedule/event storage)
+
+  pipeline_products (:4000)     pipeline_fx (:4001)      pipeline_ml (:4002)      pipeline_reporting (:4003)
+  fakestoreapi.com ->           api.frankfurter.app ->    trains a classifier      reads orders+products+
+  raw_products/raw_orders       raw_exchange_rates        on products+orders,      exchange_rates+predictions,
+        |                             |                   writes predictions       writes high_value_orders_
+        v                             v                   back                     eur_report
+  products, orders  ---------> warehouse_postgresql <-------------------------------------+
+  tables                       (also: exchange_rates,                                     |
+                                order_value_predictions,                                   |
+                                high_value_orders_eur_report) <-----------------------------+
+```
+
+## Running it
+
+```bash
+docker compose up --build
+```
+
+Open http://localhost:3000, find `pipeline_reporting` under Deployment >
+Code Locations, and materialize its assets — run `pipeline_products`,
+`pipeline_fx`, and `pipeline_ml` at least once first, since
+`pipeline_reporting` reads their output tables.
+
+Verified locally: all four pipelines materialize successfully end to end via
+`dagster job launch`, `report_has_no_duplicate_orders` passes
+(`num_duplicate_orders: 0`), and `high_value_orders_eur_report` lands in the
+warehouse with one row per order (7 rows from 14 order lines in the sample
+data).
+
+## Demo
+
+*(Add a screenshot of the Dagster UI here — open http://localhost:3000,
+select all assets, click "Materialize all", and screenshot the asset graph
+once `pipeline_reporting` shows green.)*
+
+## What I'd do differently in production
+
+This report truncates and reloads on every run (`if_exists="replace"`), so
+there's no history of what the report looked like yesterday — in production
+I'd append with a run/partition date so past reports stay queryable. The
+quality gate only checks for duplicate orders; a real version should also
+check for orders present in `orders` but missing from the report (meaning
+the join silently dropped something) and alert on that, not just on
+duplicates.
+
+---
+
 # dagster-workshop-multi
 
 A multi-container introduction to [Dagster](https://dagster.io) using the
