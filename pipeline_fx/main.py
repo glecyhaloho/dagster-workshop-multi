@@ -20,12 +20,26 @@ def exchange_rates_table(raw_exchange_rates: pd.DataFrame) -> int:
     return db.load_table(raw_exchange_rates, "exchange_rates")
 
 
-# TODO(exercise-2): add an `orders_in_eur` asset that reads the `orders` and
-# `products` tables written by pipeline_products, joins them with
-# exchange_rates_table, and converts order totals to EUR — see
-# docs/exercises.md. This is a cross-container exercise: pipeline_fx and
-# pipeline_products both write to the same warehouse Postgres, so this asset
-# can just read those tables directly with the Warehouse engine.
+@asset(deps=[exchange_rates_table])
+def orders_in_eur() -> pd.DataFrame:
+    engine = db.get_engine()
+    orders = pd.read_sql("SELECT * FROM orders", engine)
+    products = pd.read_sql("SELECT * FROM products", engine)
+    exchange_rates = pd.read_sql("SELECT * FROM exchange_rates", engine)
+
+    eur_rates = exchange_rates[exchange_rates["quote_currency"] == "EUR"]
+    if eur_rates.empty:
+        raise ValueError("No USD->EUR rate found in exchange_rates table")
+    usd_to_eur = eur_rates.iloc[0]["rate"]
+
+    merged = orders.merge(products, on="product_id", how="inner")
+    merged["total_usd"] = merged["quantity"] * merged["price"]
+    merged["total_eur"] = merged["total_usd"] * usd_to_eur
+
+    return merged[
+        ["order_id", "product_id", "customer_id", "quantity", "total_usd", "total_eur"]
+    ]
+
 
 refresh_fx_job = define_asset_job(name="refresh_fx_job")
 
@@ -36,7 +50,7 @@ refresh_fx_daily = ScheduleDefinition(
 )
 
 defs = Definitions(
-    assets=[raw_exchange_rates, exchange_rates_table],
+    assets=[raw_exchange_rates, exchange_rates_table, orders_in_eur],
     jobs=[refresh_fx_job],
     schedules=[refresh_fx_daily],
 )

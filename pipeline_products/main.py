@@ -1,5 +1,12 @@
 import pandas as pd
-from dagster import Definitions, ScheduleDefinition, asset, define_asset_job
+from dagster import (
+    AssetCheckResult,
+    Definitions,
+    ScheduleDefinition,
+    asset,
+    asset_check,
+    define_asset_job,
+)
 
 import db
 import source
@@ -41,12 +48,26 @@ def orders_table(raw_orders: pd.DataFrame) -> int:
     return db.load_table(raw_orders, "orders")
 
 
-# TODO(exercise-1): add a `top_selling_products` asset downstream of
-# raw_orders and raw_products (join on product_id, sum quantity) — see
-# docs/exercises.md
+@asset
+def top_selling_products(raw_orders: pd.DataFrame, raw_products: pd.DataFrame) -> pd.DataFrame:
+    merged = raw_orders.merge(raw_products, on="product_id", how="inner")
+    totals = (
+        merged.groupby(["product_id", "name"])["quantity"]
+        .sum()
+        .reset_index()
+        .rename(columns={"quantity": "total_quantity"})
+    )
+    return totals.sort_values("total_quantity", ascending=False).head(5).reset_index(drop=True)
 
-# TODO(exercise-3): add an @asset_check on raw_orders that fails if any row
-# has quantity <= 0 — see docs/exercises.md
+
+@asset_check(asset=raw_orders)
+def raw_orders_quantity_positive(raw_orders: pd.DataFrame) -> AssetCheckResult:
+    invalid_rows = raw_orders[raw_orders["quantity"] <= 0]
+    return AssetCheckResult(
+        passed=invalid_rows.empty,
+        metadata={"num_invalid_rows": len(invalid_rows)},
+    )
+
 
 refresh_products_job = define_asset_job(name="refresh_products_job")
 
@@ -57,7 +78,8 @@ refresh_products_daily = ScheduleDefinition(
 )
 
 defs = Definitions(
-    assets=[raw_products, raw_orders, products_table, orders_table],
+    assets=[raw_products, raw_orders, products_table, orders_table, top_selling_products],
+    asset_checks=[raw_orders_quantity_positive],
     jobs=[refresh_products_job],
     schedules=[refresh_products_daily],
 )
